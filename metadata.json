@@ -1,0 +1,7 @@
+{
+  "name": "Attendance Voice Taker",
+  "description": "A tablet-optimized application to capture names via speech for event attendance, utilizing Gemini for name formatting and offering CSV export.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
