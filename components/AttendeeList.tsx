@@ -1,11 +1,11 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Attendee } from '../types';
-import { Trash2, User, CheckCircle, Pencil, X, Check } from 'lucide-react';
+import { Trash2, User, CheckCircle, Pencil, X, Check, Phone } from 'lucide-react';
 
 interface AttendeeListProps {
   attendees: Attendee[];
   onRemove: (id: string) => void;
-  onEdit: (id: string, newName: string) => void;
+  onEdit: (id: string, newName: string, newPhone: string) => void;
 }
 
 const AttendeeList: React.FC<AttendeeListProps> = ({ attendees, onRemove, onEdit }) => {
@@ -13,7 +13,8 @@ const AttendeeList: React.FC<AttendeeListProps> = ({ attendees, onRemove, onEdit
   const prevAttendeesLength = useRef(attendees.length);
   
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editValue, setEditValue] = useState<string>('');
+  const [editName, setEditName] = useState<string>('');
+  const [editPhone, setEditPhone] = useState<string>('');
 
   // Auto-scroll to bottom only when a new attendee is added
   useEffect(() => {
@@ -25,20 +26,23 @@ const AttendeeList: React.FC<AttendeeListProps> = ({ attendees, onRemove, onEdit
 
   const startEditing = (attendee: Attendee) => {
     setEditingId(attendee.id);
-    setEditValue(attendee.formattedName || attendee.rawInput);
+    setEditName(attendee.formattedName);
+    setEditPhone(attendee.formattedPhone || '');
   };
 
   const cancelEditing = () => {
     setEditingId(null);
-    setEditValue('');
+    setEditName('');
+    setEditPhone('');
   };
 
   const saveEditing = (id: string) => {
-    if (editValue.trim()) {
-      onEdit(id, editValue.trim());
+    if (editName.trim()) {
+      onEdit(id, editName.trim(), editPhone.trim());
     }
     setEditingId(null);
-    setEditValue('');
+    setEditName('');
+    setEditPhone('');
   };
 
   const handleKeyDown = (e: React.KeyboardEvent, id: string) => {
@@ -53,8 +57,8 @@ const AttendeeList: React.FC<AttendeeListProps> = ({ attendees, onRemove, onEdit
     return (
       <div className="flex flex-col items-center justify-center h-64 text-gray-400">
         <User size={64} className="mb-4 opacity-20" />
-        <p className="text-lg">No names recorded yet.</p>
-        <p className="text-sm">Tap the microphone to start attendance.</p>
+        <p className="text-lg">No attendees recorded yet.</p>
+        <p className="text-sm">Tap the microphone to start.</p>
       </div>
     );
   }
@@ -69,19 +73,36 @@ const AttendeeList: React.FC<AttendeeListProps> = ({ attendees, onRemove, onEdit
           >
             {editingId === attendee.id ? (
               // Edit Mode
-              <div className="flex items-center w-full gap-2">
-                <div className="bg-indigo-50 p-2 rounded-full hidden sm:block">
-                  <Pencil size={20} className="text-indigo-600" />
+              <div className="flex items-center w-full gap-2 flex-wrap">
+                <div className="flex-1 min-w-[120px] flex flex-col gap-2">
+                   {/* Name Input */}
+                   <div className="flex items-center gap-2">
+                      <User size={16} className="text-gray-400" />
+                      <input
+                        type="text"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        onKeyDown={(e) => handleKeyDown(e, attendee.id)}
+                        placeholder="Name"
+                        className="w-full p-2 bg-white border border-gray-300 rounded-lg focus:outline-none focus:border-indigo-500 text-gray-800"
+                        autoFocus
+                      />
+                   </div>
+                   {/* Phone Input */}
+                   <div className="flex items-center gap-2">
+                      <Phone size={16} className="text-gray-400" />
+                      <input
+                        type="text"
+                        value={editPhone}
+                        onChange={(e) => setEditPhone(e.target.value)}
+                        onKeyDown={(e) => handleKeyDown(e, attendee.id)}
+                        placeholder="Phone Number"
+                        className="w-full p-2 bg-white border border-gray-300 rounded-lg focus:outline-none focus:border-indigo-500 text-gray-800"
+                      />
+                   </div>
                 </div>
-                <input
-                  type="text"
-                  value={editValue}
-                  onChange={(e) => setEditValue(e.target.value)}
-                  onKeyDown={(e) => handleKeyDown(e, attendee.id)}
-                  className="flex-1 p-2 border border-gray-300 rounded-lg focus:outline-none focus:border-indigo-500 font-semibold text-gray-800"
-                  autoFocus
-                />
-                <div className="flex gap-1">
+                
+                <div className="flex flex-col gap-2 ml-2">
                   <button
                     onClick={() => saveEditing(attendee.id)}
                     className="p-2 text-white bg-green-500 hover:bg-green-600 rounded-lg transition-colors"
@@ -105,11 +126,18 @@ const AttendeeList: React.FC<AttendeeListProps> = ({ attendees, onRemove, onEdit
                   </div>
                   <div className="min-w-0">
                     <h3 className="text-lg font-semibold text-gray-800 truncate">
-                      {attendee.formattedName || attendee.rawInput}
+                      {attendee.formattedName}
                     </h3>
-                    <span className="text-xs text-gray-400">
-                      {new Date(attendee.timestamp).toLocaleTimeString()}
-                    </span>
+                    <div className="flex items-center gap-2 text-sm text-gray-500 mt-0.5">
+                       {attendee.formattedPhone ? (
+                         <>
+                           <Phone size={12} />
+                           <span>{attendee.formattedPhone}</span>
+                         </>
+                       ) : (
+                         <span className="text-xs text-gray-400 italic">No phone number</span>
+                       )}
+                    </div>
                   </div>
                 </div>
                 

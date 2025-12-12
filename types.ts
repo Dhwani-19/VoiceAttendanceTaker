@@ -2,6 +2,7 @@ export interface Attendee {
   id: string;
   rawInput: string;
   formattedName: string;
+  formattedPhone?: string;
   timestamp: number;
 }
 

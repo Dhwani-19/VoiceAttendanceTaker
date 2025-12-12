@@ -15,8 +15,10 @@ const processNameListWithGemini = async (attendees: Attendee[]): Promise<Attende
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
-      contents: `I have a list of raw transcribed names from a speech-to-text system. 
-      Please fix capitalization, spelling errors that look like common names, and remove any non-name filler words.
+      contents: `I have a list of raw transcribed text where each entry might contain a name and a phone number. 
+      Please separate the name from the phone number.
+      Fix capitalization and spelling errors for the names.
+      Format the phone numbers to a standard format (e.g., XXX-XXX-XXXX) if present. If no phone number is detected, return an empty string for the phone field.
       
       Raw list: ${rawNames}`,
       config: {
@@ -27,7 +29,8 @@ const processNameListWithGemini = async (attendees: Attendee[]): Promise<Attende
             type: Type.OBJECT,
             properties: {
               original: { type: Type.STRING },
-              corrected: { type: Type.STRING }
+              correctedName: { type: Type.STRING },
+              correctedPhone: { type: Type.STRING }
             }
           }
         }
@@ -37,14 +40,16 @@ const processNameListWithGemini = async (attendees: Attendee[]): Promise<Attende
     const jsonStr = response.text;
     if (!jsonStr) return attendees;
 
-    const result = JSON.parse(jsonStr) as { original: string, corrected: string }[];
+    const result = JSON.parse(jsonStr) as { original: string, correctedName: string, correctedPhone: string }[];
     
     // Map corrections back to the attendee objects
     return attendees.map((attendee, index) => {
-       // We assume the order is preserved, but let's be safe and try to map by index if count matches
-       // or just return the corrected name if the array lengths match.
        if (result[index]) {
-         return { ...attendee, formattedName: result[index].corrected };
+         return { 
+           ...attendee, 
+           formattedName: result[index].correctedName,
+           formattedPhone: result[index].correctedPhone
+         };
        }
        return attendee;
     });

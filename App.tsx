@@ -20,7 +20,6 @@ const App: React.FC = () => {
   
   // Refs for speech recognition management
   const recognitionRef = useRef<any>(null);
-  const silenceTimerRef = useRef<number | null>(null);
 
   // Initialize Speech Recognition
   useEffect(() => {
@@ -93,14 +92,35 @@ const App: React.FC = () => {
     }
   }, [appState]);
 
+  const parseTranscript = (text: string) => {
+    const cleaned = text.trim();
+    // Simple regex to find the first digit sequence
+    // This assumes the user says "Name Number"
+    // e.g., "Amy Cooper 1234567890" -> Name: "Amy Cooper", Phone: "1234567890"
+    const digitMatch = cleaned.search(/\d/);
+    
+    if (digitMatch !== -1) {
+      const namePart = cleaned.substring(0, digitMatch).trim();
+      const phonePart = cleaned.substring(digitMatch).trim();
+      // If the name part is empty (e.g. just said a number), keep original text as name for safety
+      if (!namePart) {
+          return { name: cleaned, phone: '' };
+      }
+      return { name: namePart, phone: phonePart };
+    }
+    
+    return { name: cleaned, phone: '' };
+  };
+
   const handleFinalTranscript = useCallback((text: string) => {
-    const cleanedText = text.trim();
-    if (cleanedText.length > 0) {
-      // Add new attendee
+    const { name, phone } = parseTranscript(text);
+    
+    if (name.length > 0) {
       const newAttendee: Attendee = {
         id: crypto.randomUUID(),
-        rawInput: cleanedText,
-        formattedName: cleanedText, // Initial value, cleaned later by Gemini
+        rawInput: text,
+        formattedName: name, 
+        formattedPhone: phone,
         timestamp: Date.now(),
       };
       
@@ -121,12 +141,18 @@ const App: React.FC = () => {
     setAttendees(prev => prev.filter(a => a.id !== id));
   };
 
-  const handleEdit = (id: string, newName: string) => {
+  const handleEdit = (id: string, newName: string, newPhone: string) => {
     setAttendees(prev => prev.map(a => {
       if (a.id === id) {
-        // Update both rawInput and formattedName to ensure persistence
-        // regardless of when the edit happens (before or after processing)
-        return { ...a, rawInput: newName, formattedName: newName };
+        // Update formatted data. We update rawInput to reflect the edit for history if needed,
+        // though strictly rawInput should be the speech transcript. 
+        // Here we just sync them to keep data consistent.
+        return { 
+          ...a, 
+          rawInput: `${newName} ${newPhone}`.trim(), 
+          formattedName: newName,
+          formattedPhone: newPhone
+        };
       }
       return a;
     }));
@@ -135,7 +161,7 @@ const App: React.FC = () => {
   const handleFinish = async () => {
     setAppState(AppState.PROCESSING);
     
-    // 1. Clean names with Gemini
+    // 1. Clean names and phones with Gemini
     const processedList = await processNameListWithGemini(attendees);
     setAttendees(processedList);
     
@@ -145,13 +171,9 @@ const App: React.FC = () => {
   const handleExport = () => {
     setAppState(AppState.SUBMITTING);
 
-    // 2. Mock Backend Submission / Generate CSV
-    // "Decide which will be better... at last when whole everyone has given the name"
-    // RATIONALE: Bulk upload is more robust for events with spotty wifi.
-    
     const csvContent = "data:text/csv;charset=utf-8," 
-      + "ID,Original Input,Formatted Name,Timestamp\n"
-      + attendees.map(e => `${e.id},"${e.rawInput}","${e.formattedName}",${new Date(e.timestamp).toISOString()}`).join("\n");
+      + "ID,Name,Phone Number,Timestamp\n"
+      + attendees.map(e => `${e.id},"${e.formattedName}","${e.formattedPhone || ''}",${new Date(e.timestamp).toISOString()}`).join("\n");
 
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
@@ -161,7 +183,6 @@ const App: React.FC = () => {
     link.click();
     document.body.removeChild(link);
 
-    // Simulate backend delay
     setTimeout(() => {
         setAppState(AppState.COMPLETED);
     }, 1000);
@@ -226,7 +247,7 @@ const App: React.FC = () => {
             {appState === AppState.REVIEW ? (
                  <div className="w-full space-y-3">
                     <div className="bg-green-50 text-green-800 p-4 rounded-lg text-sm mb-2 text-center">
-                        Names processed by Gemini. Please review.
+                        Data processed. Please review names and phone numbers.
                     </div>
                     <button 
                         onClick={handleExport}
