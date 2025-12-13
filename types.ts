@@ -9,6 +9,7 @@ export interface Attendee {
 export enum AppState {
   IDLE = 'IDLE',
   LISTENING = 'LISTENING',
+  TRANSCRIBING = 'TRANSCRIBING', // Uploading and transcribing audio
   PROCESSING = 'PROCESSING', // Using Gemini to clean names
   REVIEW = 'REVIEW',
   SUBMITTING = 'SUBMITTING',

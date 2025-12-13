@@ -1,14 +1,47 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Attendee } from "../types";
 
-const processNameListWithGemini = async (attendees: Attendee[]): Promise<Attendee[]> => {
+const getAiClient = () => {
   const apiKey = process.env.API_KEY;
   if (!apiKey) {
     console.error("API Key is missing");
-    return attendees; // Return original list if no key
+    return null;
   }
+  return new GoogleGenAI({ apiKey });
+}
 
-  const ai = new GoogleGenAI({ apiKey });
+export const transcribeAudio = async (base64Audio: string, mimeType: string): Promise<string> => {
+  const ai = getAiClient();
+  if (!ai) return "";
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: {
+        parts: [
+          { 
+            inlineData: { 
+              mimeType: mimeType, 
+              data: base64Audio 
+            } 
+          },
+          { 
+            text: "Transcribe the speech in this audio exactly as spoken. The speaker is providing a name and a phone number. Return only the text transcript." 
+          }
+        ]
+      }
+    });
+
+    return response.text || "";
+  } catch (error) {
+    console.error("Error transcribing audio:", error);
+    return "";
+  }
+};
+
+const processNameListWithGemini = async (attendees: Attendee[]): Promise<Attendee[]> => {
+  const ai = getAiClient();
+  if (!ai) return attendees;
 
   const rawNames = attendees.map(a => a.rawInput).join(", ");
 
@@ -41,17 +74,17 @@ const processNameListWithGemini = async (attendees: Attendee[]): Promise<Attende
     if (!jsonStr) return attendees;
 
     const result = JSON.parse(jsonStr) as { original: string, correctedName: string, correctedPhone: string }[];
-
+    
     // Map corrections back to the attendee objects
     return attendees.map((attendee, index) => {
-      if (result[index]) {
-        return {
-          ...attendee,
-          formattedName: result[index].correctedName,
-          formattedPhone: result[index].correctedPhone
-        };
-      }
-      return attendee;
+       if (result[index]) {
+         return { 
+           ...attendee, 
+           formattedName: result[index].correctedName,
+           formattedPhone: result[index].correctedPhone
+         };
+       }
+       return attendee;
     });
 
   } catch (error) {

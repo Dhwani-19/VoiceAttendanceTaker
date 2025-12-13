@@ -3,94 +3,109 @@ import { Download, Users, RefreshCw, FileSpreadsheet } from 'lucide-react';
 import { Attendee, AppState } from './types';
 import MicButton from './components/MicButton';
 import AttendeeList from './components/AttendeeList';
-import { processNameListWithGemini } from './services/geminiService';
-
-// Speech Recognition Type Definitions
-declare global {
-  interface Window {
-    SpeechRecognition: any;
-    webkitSpeechRecognition: any;
-  }
-}
+import { processNameListWithGemini, transcribeAudio } from './services/geminiService';
 
 const App: React.FC = () => {
   const [attendees, setAttendees] = useState<Attendee[]>([]);
   const [appState, setAppState] = useState<AppState>(AppState.IDLE);
   const [currentTranscript, setCurrentTranscript] = useState<string>('');
   
-  // Refs for speech recognition management
-  const recognitionRef = useRef<any>(null);
+  // Refs for audio recording
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
-  // Initialize Speech Recognition
+  // Cleanup on unmount
   useEffect(() => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = true; // Keep listening
-      recognitionRef.current.interimResults = true;
-      recognitionRef.current.lang = 'en-US';
-
-      recognitionRef.current.onresult = (event: any) => {
-        let interimTranscript = '';
-        let finalTranscript = '';
-
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript;
-          } else {
-            interimTranscript += event.results[i][0].transcript;
-          }
-        }
-
-        if (finalTranscript) {
-          handleFinalTranscript(finalTranscript);
-        } else {
-            setCurrentTranscript(interimTranscript);
-        }
-      };
-
-      recognitionRef.current.onerror = (event: any) => {
-        console.error("Speech recognition error", event.error);
-        if (event.error === 'not-allowed') {
-            alert("Microphone access denied. Please allow microphone permissions.");
-            setAppState(AppState.IDLE);
-        }
-      };
-
-      recognitionRef.current.onend = () => {
-        // If we are supposed to be listening, restart (unless manually stopped)
-        if (appState === AppState.LISTENING) {
-          try {
-            recognitionRef.current.start();
-          } catch (e) {
-             // Ignore start errors
-          }
-        }
-      };
-    } else {
-      alert("Your browser does not support Speech Recognition. Please use Chrome or Safari.");
-    }
-
     return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only init once on mount
+  }, []);
 
-  // Watch state changes to start/stop mic
-  useEffect(() => {
-    if (appState === AppState.LISTENING) {
-      try {
-        recognitionRef.current?.start();
-      } catch (e) {
-        // Already started
-      }
-    } else {
-      recognitionRef.current?.stop();
+  const getMimeType = () => {
+    const types = ['audio/webm', 'audio/mp4', 'audio/ogg', 'audio/wav'];
+    for (const type of types) {
+      if (MediaRecorder.isTypeSupported(type)) return type;
     }
-  }, [appState]);
+    return '';
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = getMimeType();
+      
+      if (!mimeType) {
+        alert('No supported audio mime type found in this browser.');
+        return;
+      }
+
+      const recorder = new MediaRecorder(stream, { mimeType });
+      mediaRecorderRef.current = recorder;
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        setAppState(AppState.TRANSCRIBING);
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+        
+        // Convert blob to base64
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = async () => {
+          const base64String = reader.result as string;
+          // Remove the data URL prefix (e.g., "data:audio/webm;base64,")
+          const base64Audio = base64String.split(',')[1];
+          
+          if (base64Audio) {
+            try {
+              const text = await transcribeAudio(base64Audio, mimeType);
+              if (text) {
+                handleFinalTranscript(text);
+              }
+            } catch (err) {
+              console.error("Transcription failed", err);
+              alert("Failed to transcribe audio.");
+            }
+          }
+          
+          setAppState(AppState.IDLE);
+          
+          // Stop all tracks to release microphone
+          stream.getTracks().forEach(track => track.stop());
+        };
+      };
+
+      recorder.start();
+      setAppState(AppState.LISTENING);
+      setCurrentTranscript("Listening...");
+    } catch (err) {
+      console.error("Error accessing microphone:", err);
+      alert("Microphone access denied or not available.");
+      setAppState(AppState.IDLE);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+      // State change to TRANSCRIBING happens in onstop
+    }
+  };
+
+  const toggleListening = () => {
+    if (appState === AppState.LISTENING) {
+      stopRecording();
+    } else if (appState === AppState.IDLE) {
+      startRecording();
+    }
+  };
 
   const parseTranscript = (text: string) => {
     const cleaned = text.trim();
@@ -125,17 +140,9 @@ const App: React.FC = () => {
       };
       
       setAttendees(prev => [...prev, newAttendee]);
-      setCurrentTranscript(''); // Clear interim
+      setCurrentTranscript(''); 
     }
   }, []);
-
-  const toggleListening = () => {
-    if (appState === AppState.LISTENING) {
-      setAppState(AppState.IDLE);
-    } else {
-      setAppState(AppState.LISTENING);
-    }
-  };
 
   const removeAttendee = (id: string) => {
     setAttendees(prev => prev.filter(a => a.id !== id));
@@ -144,9 +151,6 @@ const App: React.FC = () => {
   const handleEdit = (id: string, newName: string, newPhone: string) => {
     setAttendees(prev => prev.map(a => {
       if (a.id === id) {
-        // Update formatted data. We update rawInput to reflect the edit for history if needed,
-        // though strictly rawInput should be the speech transcript. 
-        // Here we just sync them to keep data consistent.
         return { 
           ...a, 
           rawInput: `${newName} ${newPhone}`.trim(), 
@@ -191,6 +195,7 @@ const App: React.FC = () => {
   const resetApp = () => {
     setAttendees([]);
     setAppState(AppState.IDLE);
+    setCurrentTranscript('');
   };
 
   return (
@@ -210,7 +215,7 @@ const App: React.FC = () => {
             </div>
         </div>
         
-        {appState !== AppState.LISTENING && appState !== AppState.PROCESSING && attendees.length > 0 && (
+        {appState !== AppState.LISTENING && appState !== AppState.TRANSCRIBING && appState !== AppState.PROCESSING && attendees.length > 0 && (
             <button 
                 onClick={resetApp}
                 className="text-gray-400 hover:text-red-500 transition-colors p-2"
@@ -225,9 +230,9 @@ const App: React.FC = () => {
       <main className="flex-1 flex flex-col relative overflow-hidden">
         
         {/* Status Indicator / Transcript */}
-        <div className={`p-4 text-center transition-colors duration-300 ${appState === AppState.LISTENING ? 'bg-indigo-50' : 'bg-gray-50'}`}>
-            <p className="h-6 text-indigo-800 font-medium text-lg truncate">
-                {currentTranscript || (appState === AppState.LISTENING ? "Listening..." : "Ready")}
+        <div className={`p-4 text-center transition-colors duration-300 ${appState === AppState.LISTENING ? 'bg-indigo-50' : appState === AppState.TRANSCRIBING ? 'bg-amber-50' : 'bg-gray-50'}`}>
+            <p className={`h-6 font-medium text-lg truncate ${appState === AppState.TRANSCRIBING ? 'text-amber-600' : 'text-indigo-800'}`}>
+                {appState === AppState.TRANSCRIBING ? "Transcribing Audio..." : (currentTranscript || "Ready")}
             </p>
         </div>
 
@@ -283,7 +288,7 @@ const App: React.FC = () => {
                     <div className="absolute -top-16 left-1/2 transform -translate-x-1/2">
                         <MicButton 
                             isListening={appState === AppState.LISTENING} 
-                            isProcessing={appState === AppState.PROCESSING}
+                            isProcessing={appState === AppState.PROCESSING || appState === AppState.TRANSCRIBING}
                             onClick={toggleListening} 
                         />
                     </div>
@@ -294,7 +299,7 @@ const App: React.FC = () => {
                     {attendees.length > 0 && (
                         <button 
                             onClick={handleFinish}
-                            disabled={appState === AppState.LISTENING || appState === AppState.PROCESSING}
+                            disabled={appState === AppState.LISTENING || appState === AppState.PROCESSING || appState === AppState.TRANSCRIBING}
                             className="w-full py-3 bg-gray-900 text-white rounded-xl font-semibold hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                         >
                             {appState === AppState.PROCESSING ? 'Processing with Gemini...' : `Finish & Process (${attendees.length})`}
