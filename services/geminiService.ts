@@ -41,17 +41,17 @@ const processNameListWithGemini = async (attendees: Attendee[]): Promise<Attende
     if (!jsonStr) return attendees;
 
     const result = JSON.parse(jsonStr) as { original: string, correctedName: string, correctedPhone: string }[];
-    
+
     // Map corrections back to the attendee objects
     return attendees.map((attendee, index) => {
-       if (result[index]) {
-         return { 
-           ...attendee, 
-           formattedName: result[index].correctedName,
-           formattedPhone: result[index].correctedPhone
-         };
-       }
-       return attendee;
+      if (result[index]) {
+        return {
+          ...attendee,
+          formattedName: result[index].correctedName,
+          formattedPhone: result[index].correctedPhone
+        };
+      }
+      return attendee;
     });
 
   } catch (error) {
